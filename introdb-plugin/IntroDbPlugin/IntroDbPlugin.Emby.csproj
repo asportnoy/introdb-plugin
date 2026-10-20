@@ -18,5 +18,9 @@
     <Compile Remove="Plugin.cs" />
     <Compile Remove="PluginServiceRegistrator.cs" />
     <Compile Remove="Providers\IntroDbSegmentProvider.cs" />
+    <Compile Remove="Api\**" />
+    <Compile Remove="Services\OnDemandFetchService.cs" />
+    <Compile Remove="Services\ItemFilter.cs" />
+    <None Remove="Configuration\configPage.html" />
   </ItemGroup>
 </Project>

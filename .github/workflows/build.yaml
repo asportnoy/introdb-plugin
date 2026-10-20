@@ -1,0 +1,74 @@
+name: '🏗️ Build & Test Plugin'
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  workflow_dispatch:
+
+jobs:
+  jellyfin:
+    name: Jellyfin ${{ matrix.jellyfin }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - jellyfin: '10.10'
+            dotnet: '8.0.x'
+          - jellyfin: '10.11'
+            dotnet: '9.0.x'
+          - jellyfin: '12.2'
+            dotnet: '10.0.x'
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@2016bd2012dba4e32de620c46fe006a3ac9f0602 # v5.0.1
+        with:
+          dotnet-version: ${{ matrix.dotnet }}
+
+      - name: Build
+        run: ./build.sh --jellyfin-${{ matrix.jellyfin }}
+
+      - name: Test
+        run: dotnet test introdb-plugin/IntroDbPlugin.Tests/IntroDbPlugin.Tests.csproj -c Release -p:JellyfinVersion=${{ matrix.jellyfin }} --nologo
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: introdb-jellyfin-${{ matrix.jellyfin }}
+          retention-days: 14
+          if-no-files-found: error
+          path: build/*.zip
+
+  emby:
+    name: Emby
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@2016bd2012dba4e32de620c46fe006a3ac9f0602 # v5.0.1
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: ./build.sh --emby
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: introdb-emby
+          retention-days: 14
+          if-no-files-found: error
+          path: build/*.zip

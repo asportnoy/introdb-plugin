@@ -5,9 +5,34 @@
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>
     <AnalysisMode>Default</AnalysisMode>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version Condition="'$(Version)' == ''">1.0.0.0</Version>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <FileVersion>$(Version)</FileVersion>
     <NoWarn>$(NoWarn);SA1309;SA1633;SA1200;SA1413;CA1848;CA1812;CA1031;SA1101;SA0001</NoWarn>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <!-- Jellyfin version targeting, shared by the plugin and test projects. The Emby project sets its own framework. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'IntroDbPlugin.Emby'">
+    <JellyfinVersion Condition="'$(JellyfinVersion)' == ''">12.2</JellyfinVersion>
+    <DefineConstants>$(DefineConstants);JELLYFIN</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Jellyfin 10.10 uses .NET 8.0 -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'IntroDbPlugin.Emby' And '$(JellyfinVersion)' == '10.10'">
+    <TargetFramework>net8.0</TargetFramework>
+    <DefineConstants>$(DefineConstants);JELLYFIN_10_10</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Jellyfin 10.11 uses .NET 9.0 -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'IntroDbPlugin.Emby' And '$(JellyfinVersion)' == '10.11'">
+    <TargetFramework>net9.0</TargetFramework>
+    <DefineConstants>$(DefineConstants);JELLYFIN_10_11;JELLYFIN_10_11_OR_GREATER</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Jellyfin 12.2 uses .NET 10.0 -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'IntroDbPlugin.Emby' And '$(JellyfinVersion)' == '12.2'">
+    <TargetFramework>net10.0</TargetFramework>
+    <DefineConstants>$(DefineConstants);JELLYFIN_12_2;JELLYFIN_10_11_OR_GREATER;JELLYFIN_12_OR_GREATER</DefineConstants>
   </PropertyGroup>
 </Project>

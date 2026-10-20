@@ -1,23 +1,28 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <JellyfinVersion Condition="'$(JellyfinVersion)' == ''">10.10</JellyfinVersion>
-    <DefineConstants>$(DefineConstants);JELLYFIN</DefineConstants>
-  </PropertyGroup>
-
-  <!-- Jellyfin 10.10 uses .NET 8.0 -->
-  <PropertyGroup Condition="'$(JellyfinVersion)' == '10.10'">
-    <TargetFramework>net8.0</TargetFramework>
-    <DefineConstants>$(DefineConstants);JELLYFIN_10_10</DefineConstants>
-  </PropertyGroup>
-
-  <!-- Jellyfin 10.11 uses .NET 9.0 -->
-  <PropertyGroup Condition="'$(JellyfinVersion)' == '10.11'">
-    <TargetFramework>net9.0</TargetFramework>
-    <DefineConstants>$(DefineConstants);JELLYFIN_10_11</DefineConstants>
-  </PropertyGroup>
+  <!-- JellyfinVersion and TargetFramework are set in Directory.Build.props (default: 12.2). -->
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion).*-*" />
-    <PackageReference Include="Jellyfin.Model" Version="$(JellyfinVersion).*-*" />
+    <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion).*-*">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <PackageReference Include="Jellyfin.Model" Version="$(JellyfinVersion).*-*">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Jellyfin 10.11+ moved MediaSegmentType into Jellyfin.Database.Implementations -->
+  <ItemGroup Condition="'$(JellyfinVersion)' != '10.10'">
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="$(JellyfinVersion).*-*">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="IntroDbPlugin.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Configuration\configPage.html" />
+    <EmbeddedResource Include="Configuration\configPage.html" />
   </ItemGroup>
 </Project>

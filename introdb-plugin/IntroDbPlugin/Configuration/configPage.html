@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>IntroDB</title>
+</head>
+<body>
+<div id="IntroDbConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <style>
+        #IntroDbConfigPage .idb-section { margin-bottom: 2.5em; }
+        #IntroDbConfigPage .idb-list { max-height: 18em; overflow-y: auto; margin: .5em 0; }
+        #IntroDbConfigPage .idb-chips { display: flex; flex-wrap: wrap; gap: .4em; margin: .5em 0; }
+        #IntroDbConfigPage .idb-chip { display: inline-flex; align-items: center; gap: .4em; padding: .25em .6em; border-radius: 1em; background: rgba(128,128,128,.25); }
+        #IntroDbConfigPage .idb-chip button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 1.1em; padding: 0; }
+        #IntroDbConfigPage .idb-result { display: flex; justify-content: space-between; align-items: center; padding: .35em .2em; border-bottom: 1px solid rgba(128,128,128,.2); }
+        #IntroDbConfigPage .idb-result button { margin: 0; }
+        #IntroDbConfigPage .idb-status { margin-top: .5em; opacity: .85; }
+        #IntroDbConfigPage .idb-row { display: flex; gap: .5em; flex-wrap: wrap; align-items: center; }
+    </style>
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="IntroDbConfigForm">
+                <div class="verticalSection idb-section">
+                    <h2 class="sectionTitle">Segments</h2>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableIntro" type="checkbox" is="emby-checkbox" />
+                            <span>Intros</span>
+                        </label>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableRecap" type="checkbox" is="emby-checkbox" />
+                            <span>Recaps</span>
+                        </label>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableCredits" type="checkbox" is="emby-checkbox" />
+                            <span>End credits</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">Stored as Outro segments. When IntroDB knows of a post-credits scene, the credits segment ends where the scene starts, so skipping the credits never skips the scene.</div>
+                    </div>
+                </div>
+
+                <div class="verticalSection idb-section">
+                    <h2 class="sectionTitle">Scan scope</h2>
+                    <div class="fieldDescription">Leave everything unselected to fetch for all TV and movie libraries. Otherwise only items in the selected libraries, or the selected shows and movies, are fetched.</div>
+                    <h3>Libraries</h3>
+                    <div id="LibraryList" class="idb-list"></div>
+                    <h3>Shows and movies</h3>
+                    <div id="SelectedShows" class="idb-chips"></div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="search" id="ShowSearch" label="Search to add a show or movie" autocomplete="off" />
+                    </div>
+                    <div id="ShowResults" class="idb-list"></div>
+                </div>
+
+                <div class="verticalSection idb-section">
+                    <h2 class="sectionTitle">Scanning behavior</h2>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="IgnoreMediaWithExistingSegments" type="checkbox" is="emby-checkbox" />
+                            <span>Skip items that already have segments</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">Skips any item with segments from any provider (Intro Skipper, Segment Editor, …). Faster on large libraries, but IntroDB won't add, say, credits to an episode that another provider already gave an intro.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableOnDemandFetch" type="checkbox" is="emby-checkbox" />
+                            <span>Fetch when items are added or start playing</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">Fetches segments for an item without any as soon as it's added (after a short wait for metadata) or played, instead of waiting for the Media Segment Scan task. This runs every enabled segment provider for that item.</div>
+                    </div>
+                </div>
+
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                        <span>Save</span>
+                    </button>
+                </div>
+            </form>
+
+            <div class="verticalSection idb-section" style="margin-top: 3em;">
+                <h2 class="sectionTitle">Not-found cache</h2>
+                <div class="fieldDescription">Items IntroDB has nothing for are remembered for a day (two weeks when the community confirmed there is nothing to skip), so repeat scans don't ask again. Clear it to look everything up again on the next scan.</div>
+                <div class="idb-row">
+                    <button is="emby-button" type="button" id="ClearCache" class="raised emby-button"><span>Clear not-found cache</span></button>
+                    <span id="CacheStatus" class="idb-status"></span>
+                </div>
+            </div>
+
+            <div class="verticalSection idb-section" id="RemoveSection">
+                <h2 class="sectionTitle">Remove IntroDB segments</h2>
+                <div class="fieldDescription">Deletes segments created by IntroDB from a library, show or movie. Segments from other providers are kept. They come back on the next scan unless you also narrow the scan scope or turn segment types off.</div>
+                <div class="selectContainer">
+                    <select is="emby-select" id="RemoveLibrary" label="Library">
+                        <option value="">Choose a library…</option>
+                    </select>
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" type="search" id="RemoveShowSearch" label="…or search for a show or movie" autocomplete="off" />
+                </div>
+                <div id="RemoveShowResults" class="idb-list"></div>
+                <div class="idb-row">
+                    <button is="emby-button" type="button" id="RemoveSegments" class="raised emby-button" disabled><span>Remove segments</span></button>
+                    <span id="RemoveStatus" class="idb-status"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var pluginId = 'b04f5f3e-3d3a-4a3c-9cd9-9f4f9a0c8a61';
+            var page = document.querySelector('#IntroDbConfigPage');
+            var supportedCollections = ['', 'tvshows', 'movies', 'mixed'];
+            var state = { libraries: [], selectedLibraries: [], selectedShows: {}, removeTarget: null, removeIds: null };
+
+            function $(selector) { return page.querySelector(selector); }
+
+            function escapeHtml(value) {
+                return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+                });
+            }
+
+            function splitIds(csv) {
+                return (csv || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+            }
+
+            function normalizeId(id) { return String(id || '').replace(/-/g, '').toLowerCase(); }
+
+            function userId() {
+                return ApiClient.getCurrentUserId();
+            }
+
+            function label(item) {
+                var year = item.ProductionYear ? ' (' + item.ProductionYear + ')' : '';
+                var kind = item.Type === 'Movie' ? 'Movie' : 'Show';
+                return item.Name + year + ' · ' + kind;
+            }
+
+            function pluginRequest(type, path, body) {
+                var options = { type: type, url: ApiClient.getUrl(path), dataType: 'json' };
+                if (body !== undefined) {
+                    options.data = JSON.stringify(body);
+                    options.contentType = 'application/json';
+                }
+                return ApiClient.ajax(options);
+            }
+
+            function searchItems(term, types) {
+                return ApiClient.getJSON(ApiClient.getUrl('Users/' + userId() + '/Items', {
+                    SearchTerm: term,
+                    IncludeItemTypes: types,
+                    Recursive: true,
+                    SortBy: 'SortName',
+                    Fields: 'ProductionYear',
+                    Limit: 30
+                })).then(function (result) { return result.Items || []; });
+            }
+
+            function debounce(fn, ms) {
+                var timer;
+                return function () {
+                    var args = arguments;
+                    clearTimeout(timer);
+                    timer = setTimeout(function () { fn.apply(null, args); }, ms);
+                };
+            }
+
+            // ---- Scan scope ----
+
+            function renderLibraries() {
+                $('#LibraryList').innerHTML = state.libraries.map(function (lib) {
+                    var checked = state.selectedLibraries.indexOf(normalizeId(lib.Id)) !== -1 ? ' checked' : '';
+                    return '<div class="checkboxContainer"><label class="emby-checkbox-label">'
+                        + '<input type="checkbox" is="emby-checkbox" data-library="' + escapeHtml(lib.Id) + '"' + checked + ' />'
+                        + '<span>' + escapeHtml(lib.Name) + '</span></label></div>';
+                }).join('') || '<div class="fieldDescription">No TV or movie libraries found.</div>';
+
+                $('#RemoveLibrary').innerHTML = '<option value="">Choose a library…</option>' + state.libraries.map(function (lib) {
+                    return '<option value="' + escapeHtml(lib.Id) + '">' + escapeHtml(lib.Name) + '</option>';
+                }).join('');
+            }
+
+            function renderSelectedShows() {
+                var ids = Object.keys(state.selectedShows);
+                $('#SelectedShows').innerHTML = ids.length === 0
+                    ? '<span class="fieldDescription">None selected.</span>'
+                    : ids.map(function (id) {
+                        return '<span class="idb-chip">' + escapeHtml(state.selectedShows[id]) +
+                            '<button type="button" title="Remove" data-unselect="' + escapeHtml(id) + '">×</button></span>';
+                    }).join('');
+            }
+
+            function renderResults(container, items, action, actionLabel) {
+                container.innerHTML = items.map(function (item) {
+                    return '<div class="idb-result"><span>' + escapeHtml(label(item)) + '</span>'
+                        + '<button is="emby-button" type="button" class="emby-button" data-' + action + '="' + escapeHtml(item.Id) + '" data-name="' + escapeHtml(label(item)) + '">'
+                        + actionLabel + '</button></div>';
+                }).join('');
+            }
+
+            function loadLibraries() {
+                return ApiClient.getJSON(ApiClient.getUrl('Users/' + userId() + '/Views')).then(function (result) {
+                    state.libraries = (result.Items || []).filter(function (lib) {
+                        return supportedCollections.indexOf((lib.CollectionType || '').toLowerCase()) !== -1;
+                    });
+                    renderLibraries();
+                });
+            }
+
+            function loadSelectedShowNames(ids) {
+                state.selectedShows = {};
+                if (ids.length === 0) {
+                    renderSelectedShows();
+                    return Promise.resolve();
+                }
+
+                return ApiClient.getJSON(ApiClient.getUrl('Users/' + userId() + '/Items', {
+                    Ids: ids.join(','),
+                    Fields: 'ProductionYear'
+                })).then(function (result) {
+                    ids.forEach(function (id) { state.selectedShows[normalizeId(id)] = id; });
+                    (result.Items || []).forEach(function (item) { state.selectedShows[normalizeId(item.Id)] = label(item); });
+                    renderSelectedShows();
+                });
+            }
+
+            // ---- Not-found cache ----
+
+            function refreshCacheStatus() {
+                pluginRequest('GET', 'Plugins/IntroDB/NotFoundCache').then(function (result) {
+                    $('#CacheStatus').textContent = result.Entries + ' item(s) cached.';
+                }, function () {
+                    $('#CacheStatus').textContent = '';
+                });
+            }
+
+            // ---- Remove segments ----
+
+            function setRemoveTarget(target) {
+                state.removeTarget = target;
+                state.removeIds = null;
+                $('#RemoveSegments').disabled = !target;
+                $('#RemoveSegments').querySelector('span').textContent = 'Remove segments';
+                $('#RemoveStatus').textContent = target ? 'Target: ' + target.name : '';
+            }
+
+            function expandRemoveTarget(target) {
+                var params = { ParentId: target.id, Recursive: true, IncludeItemTypes: 'Episode,Movie', Fields: 'Id', Limit: 100000 };
+                if (target.isMovie) {
+                    return Promise.resolve([target.id]);
+                }
+
+                return ApiClient.getJSON(ApiClient.getUrl('Users/' + userId() + '/Items', params)).then(function (result) {
+                    return (result.Items || []).map(function (item) { return item.Id; });
+                });
+            }
+
+            function onRemoveClick() {
+                var button = $('#RemoveSegments');
+                if (!state.removeTarget) {
+                    return;
+                }
+
+                if (!state.removeIds) {
+                    // First click: count the items, then ask for confirmation on the button itself.
+                    button.disabled = true;
+                    expandRemoveTarget(state.removeTarget).then(function (ids) {
+                        state.removeIds = ids;
+                        button.disabled = ids.length === 0;
+                        button.querySelector('span').textContent = ids.length === 0
+                            ? 'Nothing to remove'
+                            : 'Click again to remove from ' + ids.length + ' item(s)';
+                    }, function () {
+                        button.disabled = false;
+                        $('#RemoveStatus').textContent = 'Could not list items.';
+                    });
+                    return;
+                }
+
+                button.disabled = true;
+                Dashboard.showLoadingMsg();
+                pluginRequest('DELETE', 'Plugins/IntroDB/Segments', { ItemIds: state.removeIds }).then(function (result) {
+                    Dashboard.hideLoadingMsg();
+                    setRemoveTarget(null);
+                    $('#RemoveStatus').textContent = 'Removed ' + result.TotalSegmentsRemoved + ' segment(s) from ' + result.TotalItems + ' item(s).';
+                }, function (response) {
+                    Dashboard.hideLoadingMsg();
+                    button.disabled = false;
+                    $('#RemoveStatus').textContent = response && response.status === 404
+                        ? 'Removing segments needs Jellyfin 10.11 or newer.'
+                        : 'Removing segments failed. Check the server log.';
+                });
+            }
+
+            // ---- Load / save ----
+
+            page.addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    $('#EnableIntro').checked = config.EnableIntro !== false;
+                    $('#EnableRecap').checked = config.EnableRecap !== false;
+                    $('#EnableCredits').checked = config.EnableCredits !== false;
+                    $('#IgnoreMediaWithExistingSegments').checked = config.IgnoreMediaWithExistingSegments === true;
+                    $('#EnableOnDemandFetch').checked = config.EnableOnDemandFetch !== false;
+                    state.selectedLibraries = splitIds(config.SelectedLibraryIds).map(normalizeId);
+
+                    return Promise.all([loadLibraries(), loadSelectedShowNames(splitIds(config.SelectedShowIds))]);
+                }).then(function () {
+                    Dashboard.hideLoadingMsg();
+                }, function () {
+                    Dashboard.hideLoadingMsg();
+                });
+
+                refreshCacheStatus();
+                setRemoveTarget(null);
+            });
+
+            $('#IntroDbConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    config.EnableIntro = $('#EnableIntro').checked;
+                    config.EnableRecap = $('#EnableRecap').checked;
+                    config.EnableCredits = $('#EnableCredits').checked;
+                    config.IgnoreMediaWithExistingSegments = $('#IgnoreMediaWithExistingSegments').checked;
+                    config.EnableOnDemandFetch = $('#EnableOnDemandFetch').checked;
+                    config.SelectedLibraryIds = Array.prototype.map.call(
+                        page.querySelectorAll('#LibraryList input[data-library]:checked'),
+                        function (input) { return input.getAttribute('data-library'); }).join(',');
+                    config.SelectedShowIds = Object.keys(state.selectedShows).join(',');
+                    return ApiClient.updatePluginConfiguration(pluginId, config);
+                }).then(function (result) {
+                    Dashboard.processPluginConfigurationUpdateResult(result);
+                }, function () {
+                    Dashboard.hideLoadingMsg();
+                });
+                return false;
+            });
+
+            $('#ShowSearch').addEventListener('input', debounce(function () {
+                var term = $('#ShowSearch').value.trim();
+                if (term.length < 2) {
+                    $('#ShowResults').innerHTML = '';
+                    return;
+                }
+
+                searchItems(term, 'Series,Movie').then(function (items) {
+                    renderResults($('#ShowResults'), items, 'select', 'Add');
+                });
+            }, 300));
+
+            $('#ShowResults').addEventListener('click', function (e) {
+                var button = e.target.closest('[data-select]');
+                if (!button) {
+                    return;
+                }
+
+                state.selectedShows[normalizeId(button.getAttribute('data-select'))] = button.getAttribute('data-name');
+                renderSelectedShows();
+            });
+
+            $('#SelectedShows').addEventListener('click', function (e) {
+                var button = e.target.closest('[data-unselect]');
+                if (!button) {
+                    return;
+                }
+
+                delete state.selectedShows[button.getAttribute('data-unselect')];
+                renderSelectedShows();
+            });
+
+            $('#ClearCache').addEventListener('click', function () {
+                pluginRequest('POST', 'Plugins/IntroDB/NotFoundCache/Clear').then(function (result) {
+                    $('#CacheStatus').textContent = 'Cleared ' + result.ClearedEntries + ' item(s).';
+                }, function () {
+                    $('#CacheStatus').textContent = 'Clearing the cache failed.';
+                });
+            });
+
+            $('#RemoveLibrary').addEventListener('change', function () {
+                var select = $('#RemoveLibrary');
+                $('#RemoveShowResults').innerHTML = '';
+                setRemoveTarget(select.value
+                    ? { id: select.value, name: select.options[select.selectedIndex].text, isMovie: false }
+                    : null);
+            });
+
+            $('#RemoveShowSearch').addEventListener('input', debounce(function () {
+                var term = $('#RemoveShowSearch').value.trim();
+                if (term.length < 2) {
+                    $('#RemoveShowResults').innerHTML = '';
+                    return;
+                }
+
+                searchItems(term, 'Series,Movie').then(function (items) {
+                    renderResults($('#RemoveShowResults'), items, 'remove-target', 'Choose');
+                    items.forEach(function (item) { state['type:' + item.Id] = item.Type; });
+                });
+            }, 300));
+
+            $('#RemoveShowResults').addEventListener('click', function (e) {
+                var button = e.target.closest('[data-remove-target]');
+                if (!button) {
+                    return;
+                }
+
+                var id = button.getAttribute('data-remove-target');
+                $('#RemoveLibrary').value = '';
+                setRemoveTarget({ id: id, name: button.getAttribute('data-name'), isMovie: state['type:' + id] === 'Movie' });
+            });
+
+            $('#RemoveSegments').addEventListener('click', onRemoveClick);
+        })();
+    </script>
+</div>
+</body>
+</html>

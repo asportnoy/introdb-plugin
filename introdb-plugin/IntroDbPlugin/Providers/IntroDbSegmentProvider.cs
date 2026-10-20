@@ -3,20 +3,26 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Text.RegularExpressions;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroDbPlugin.Configuration;
 using IntroDbPlugin.Services;
-using Jellyfin.Data.Enums;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model;
-using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.MediaSegments;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+#if JELLYFIN_10_11_OR_GREATER
+using Jellyfin.Database.Implementations.Enums;
+using MediaBrowser.Controller.MediaSegments;
+#else
+using Jellyfin.Data.Enums;
+#endif
 
 namespace IntroDbPlugin.Providers;
 
@@ -25,15 +31,9 @@ namespace IntroDbPlugin.Providers;
 /// </summary>
 public class IntroDbSegmentProvider : IMediaSegmentProvider
 {
-    private const long TicksPerSecond = TimeSpan.TicksPerSecond;
-    private const string ImdbIdPattern = @"\btt\d{7,8}\b";
-    private const string SeasonEpisodePattern = @"S(?<season>\d{1,2})E(?<episode>\d{1,2})";
-
-    private static readonly Regex ImdbIdRegex = new(ImdbIdPattern, RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex SeasonEpisodeRegex = new(SeasonEpisodePattern, RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
     private readonly ILibraryManager _libraryManager;
     private readonly IntroDbClient _introDbClient;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<IntroDbSegmentProvider> _logger;
 
     /// <summary>
@@ -41,23 +41,28 @@ public class IntroDbSegmentProvider : IMediaSegmentProvider
     /// </summary>
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="introDbClient">IntroDB client.</param>
+    /// <param name="serviceProvider">Service provider, used to resolve the segment manager lazily.</param>
     /// <param name="logger">Logger.</param>
     public IntroDbSegmentProvider(
         ILibraryManager libraryManager,
         IntroDbClient introDbClient,
+        IServiceProvider serviceProvider,
         ILogger<IntroDbSegmentProvider> logger)
     {
         ArgumentNullException.ThrowIfNull(libraryManager);
         ArgumentNullException.ThrowIfNull(introDbClient);
+        ArgumentNullException.ThrowIfNull(serviceProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
         _libraryManager = libraryManager;
         _introDbClient = introDbClient;
+        _serviceProvider = serviceProvider;
         _logger = logger;
+        _logger.LogInformation("IntroDB segment provider constructed");
     }
 
     /// <inheritdoc />
-    public string Name => "IntroDB";
+    public string Name => Plugin.PluginName;
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(
@@ -65,145 +70,145 @@ public class IntroDbSegmentProvider : IMediaSegmentProvider
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        Debug.Assert(request.ItemId != Guid.Empty, "Media segment request should contain an item id.");
+        _logger.LogDebug("GetMediaSegments called for ItemId={ItemId}", request.ItemId);
 
         var item = _libraryManager.GetItemById(request.ItemId);
-        if (item is not Episode episode)
+        if (item is null)
+        {
+            _logger.LogWarning("Early exit: item not found for ItemId={ItemId}", request.ItemId);
+            return Array.Empty<MediaSegmentDto>();
+        }
+
+        if (item is not (Episode or Movie))
         {
             return Array.Empty<MediaSegmentDto>();
         }
 
-        if (!TryGetImdbId(episode, out var imdbId))
-        {
-            _logger.LogDebug("Skipping IntroDB lookup for {ItemId}: IMDb id missing.", request.ItemId);
-            return Array.Empty<MediaSegmentDto>();
-        }
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
-        if (!TryGetSeasonEpisodeNumbers(episode, out var seasonNumber, out var episodeNumber))
-        {
-            _logger.LogDebug("Skipping IntroDB lookup for {ItemId}: invalid season/episode number.", request.ItemId);
-            return Array.Empty<MediaSegmentDto>();
-        }
-
-        IntroDbIntroResult? result;
-        try
-        {
-            result = await _introDbClient
-                .GetIntroAsync(imdbId, seasonNumber, episodeNumber, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(
-                exception,
-                "IntroDB lookup failed for {ItemId} (IMDb {ImdbId} S{Season}E{Episode}).",
-                request.ItemId,
-                imdbId,
-                seasonNumber,
-                episodeNumber);
-            return Array.Empty<MediaSegmentDto>();
-        }
-
-        if (result is null)
+        if (!ItemFilter.IsAllowed(item, config, _libraryManager))
         {
             _logger.LogDebug(
-                "IntroDB returned no intro for {ItemId} (IMDb {ImdbId} S{Season}E{Episode}).",
-                request.ItemId,
-                imdbId,
-                seasonNumber,
-                episodeNumber);
+                "Skipping {Name}: item does not match selected filters ({SelectedShowCount} shows, {SelectedLibraryCount} libraries)",
+                item.Name,
+                config.GetSelectedShowIds().Count,
+                config.GetSelectedLibraryIds().Count);
+            return GetExistingSegments(request);
+        }
+
+        var failure = MediaIdentity.TryCreateLookup(item, out var lookup);
+        if (failure == MediaIdentity.Failure.MissingImdbId)
+        {
+            _logger.LogWarning("Early exit: no ImdbId for {Name}", item.Name);
             return Array.Empty<MediaSegmentDto>();
         }
 
-        var startTicks = (long)(result.StartSeconds * TicksPerSecond);
-        var endTicks = (long)(result.EndSeconds * TicksPerSecond);
-        if (endTicks <= startTicks)
+        if (failure == MediaIdentity.Failure.MissingEpisodeNumbers)
         {
-            _logger.LogWarning("IntroDB returned invalid segment for {ItemId}.", request.ItemId);
+            _logger.LogWarning("Early exit: TV episode missing season/episode for {Name}", item.Name);
             return Array.Empty<MediaSegmentDto>();
         }
 
-        if (episode.RunTimeTicks.HasValue && episode.RunTimeTicks.Value > 0 && endTicks > episode.RunTimeTicks.Value)
+        if (failure != MediaIdentity.Failure.None || lookup is null)
         {
-            _logger.LogWarning("IntroDB returned segment beyond duration for {ItemId}.", request.ItemId);
             return Array.Empty<MediaSegmentDto>();
         }
 
-        return new List<MediaSegmentDto>
+        if (item is Episode episode)
         {
-            new()
+            _logger.LogDebug(
+                "Episode: Name={Name}, Series={Series}, S{Season}E{Episode}, ImdbId={ImdbId}",
+                item.Name,
+                episode.SeriesName,
+                lookup.Season,
+                lookup.Episode,
+                lookup.ImdbId);
+        }
+        else
+        {
+            _logger.LogDebug("Movie: Name={Name}, ImdbId={ImdbId}", item.Name, lookup.ImdbId);
+        }
+
+        // Resolved lazily: the segment manager depends on the providers, so injecting it would be circular.
+        if (config.IgnoreMediaWithExistingSegments
+            && _serviceProvider.GetService<IMediaSegmentManager>() is { } segmentManager
+            && segmentManager.HasSegments(request.ItemId))
+        {
+            _logger.LogDebug("Skipping {Name}: already has segments (IgnoreMediaWithExistingSegments enabled)", item.Name);
+            return GetExistingSegments(request);
+        }
+
+        _logger.LogInformation(
+            "Fetching from IntroDB API: imdbId={ImdbId}, isMovie={IsMovie}, season={Season}, episode={Episode}",
+            lookup.ImdbId,
+            lookup.IsMovie,
+            lookup.Season,
+            lookup.Episode);
+
+        var fetch = await _introDbClient.GetSegmentsAsync(lookup, cancellationToken).ConfigureAwait(false);
+        switch (fetch.Status)
+        {
+            case IntroDbFetchStatus.Error:
+                _logger.LogWarning("IntroDB API request was an error for {Name}; preserving existing segments", item.Name);
+                return GetExistingSegments(request);
+            case IntroDbFetchStatus.RateLimited:
+                _logger.LogDebug("IntroDB API request was rate limited for {Name}; preserving existing segments", item.Name);
+                return GetExistingSegments(request);
+            case IntroDbFetchStatus.NotFound when fetch.FromCache:
+                _logger.LogDebug("Skipping {Name}: known not found in IntroDB (cached)", item.Name);
+                return Array.Empty<MediaSegmentDto>();
+            case IntroDbFetchStatus.NotFound:
+                _logger.LogInformation("IntroDB API returned no data for {Name}", item.Name);
+                return Array.Empty<MediaSegmentDto>();
+        }
+
+        var segments = SegmentPlanner
+            .Build(fetch.Segments!, config.GetSegmentToggles(), item.RunTimeTicks)
+            .Select(segment => new MediaSegmentDto
             {
                 ItemId = request.ItemId,
-                StartTicks = startTicks,
-                EndTicks = endTicks,
-                Type = MediaSegmentType.Intro
-            }
-        };
+                StartTicks = segment.StartTicks,
+                EndTicks = segment.EndTicks,
+                Type = ToMediaSegmentType(segment.Kind)
+            })
+            .ToList();
+
+        _logger.LogInformation("Returning {Count} segments for {Name}", segments.Count, item.Name);
+        return segments;
     }
 
     /// <inheritdoc />
-    public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is Episode);
-
-    private bool TryGetImdbId(Episode episode, out string imdbId)
+    public ValueTask<bool> Supports(BaseItem item)
     {
-        if (episode.SeriesId != Guid.Empty && _libraryManager.GetItemById(episode.SeriesId) is Series series)
-        {
-            if (series.ProviderIds.TryGetValue(MetadataProvider.Imdb.ToString(), out var seriesImdbId) &&
-                !string.IsNullOrWhiteSpace(seriesImdbId))
-            {
-                imdbId = seriesImdbId;
-                return true;
-            }
-        }
-
-        if (episode.ProviderIds.TryGetValue(MetadataProvider.Imdb.ToString(), out var providerImdbId) &&
-            !string.IsNullOrWhiteSpace(providerImdbId))
-        {
-            imdbId = providerImdbId;
-            return true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(episode.Path))
-        {
-            var match = ImdbIdRegex.Match(episode.Path);
-            if (match.Success)
-            {
-                imdbId = match.Value;
-                return true;
-            }
-        }
-
-        imdbId = string.Empty;
-        return false;
+        var supported = item is Episode or Movie;
+        _logger.LogTrace("Supports({Name}, {Type}): {Supported}", item?.Name ?? "null", item?.GetType().Name ?? "null", supported);
+        return ValueTask.FromResult(supported);
     }
 
-    private static bool TryGetSeasonEpisodeNumbers(Episode episode, out int seasonNumber, out int episodeNumber)
+#if JELLYFIN_12_OR_GREATER
+    /// <inheritdoc />
+    public Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken)
     {
-        seasonNumber = episode.AiredSeasonNumber ?? episode.ParentIndexNumber ?? 0;
-        episodeNumber = episode.IndexNumber ?? 0;
-
-        if (seasonNumber > 0 && episodeNumber > 0)
-        {
-            return true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(episode.Path))
-        {
-            var match = SeasonEpisodeRegex.Match(episode.Path);
-            if (match.Success &&
-                int.TryParse(match.Groups["season"].Value, out var parsedSeason) &&
-                int.TryParse(match.Groups["episode"].Value, out var parsedEpisode))
-            {
-                seasonNumber = parsedSeason;
-                episodeNumber = parsedEpisode;
-                return seasonNumber > 0 && episodeNumber > 0;
-            }
-        }
-
-        return seasonNumber > 0 && episodeNumber > 0;
+        // IntroDB does not cache any analysis data locally, so cleanup is a no-op.
+        _logger.LogDebug("CleanupExtractedData called for ItemId={ItemId}: no-op", itemId);
+        return Task.CompletedTask;
     }
+#endif
+
+    private static IReadOnlyList<MediaSegmentDto> GetExistingSegments(MediaSegmentGenerationRequest request)
+    {
+#if JELLYFIN_10_11_OR_GREATER
+        return request.ExistingSegments?.ToList() ?? (IReadOnlyList<MediaSegmentDto>)Array.Empty<MediaSegmentDto>();
+#else
+        return Array.Empty<MediaSegmentDto>();
+#endif
+    }
+
+    private static MediaSegmentType ToMediaSegmentType(PlannedSegmentKind kind) => kind switch
+    {
+        PlannedSegmentKind.Intro => MediaSegmentType.Intro,
+        PlannedSegmentKind.Recap => MediaSegmentType.Recap,
+        PlannedSegmentKind.Outro => MediaSegmentType.Outro,
+        _ => MediaSegmentType.Unknown
+    };
 }

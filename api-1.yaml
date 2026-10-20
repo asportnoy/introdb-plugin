@@ -1,80 +1,85 @@
+---
 openapi: 3.1.0
 info:
   title: IntroDB API
-  description: Public API for fetching TV show intro timestamps
+  description: Public API for fetching and submitting segment timestamps (intro, recap,
+    outro) for TV shows, plus end-credits and post-credits segments for movies.
   version: 1.0.0
   contact:
     name: IntroDB
     url: https://introdb.app
 servers:
-  - url: http://api.introdb.app
-    description: Current environment
+- url: https://api.introdb.app
+  description: Current environment
 tags:
-  - name: intros
-    description: Public intros endpoints
-  - name: submissions
-    description: Submit intro timestamps programmatically
+- name: intros
+  description: Public intros endpoints
+- name: segments
+  description: 'Public segment endpoints (TV: intro, recap, outro · Movies: end credits,
+    post-credits)'
+- name: submissions
+  description: Submit segment timestamps programmatically
 components:
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
       in: header
       name: X-API-Key
-      description: "API key for programmatic submissions (format: idb_...)"
+      description: 'API key for programmatic submissions (format: idb_...)'
 paths:
-  /intro:
+  "/intro":
     get:
       tags:
-        - intros
+      - intros
       summary: Get intro timestamps for an episode
-      description: Returns the aggregated intro start/end times for a specific TV show
-        episode. Crowdsourced data from community submissions.
+      description: Returns the aggregated intro start/end times for a specific TV
+        show episode. Crowdsourced data from community submissions.
       operationId: getIntro
       parameters:
-        - name: imdb_id
-          in: query
-          required: true
-          description: IMDb ID (e.g., tt0944947 for Game of Thrones)
-          schema:
-            type: string
-            pattern: ^tt[0-9]{7,8}
-            examples:
-              got:
-                value: tt0944947
-                summary: Game of Thrones
-              breakingBad:
-                value: tt0903747
-                summary: Breaking Bad
-        - name: season
-          in: query
-          required: true
-          description: Season number (starting from 1)
-          schema:
-            type: integer
-            minimum: 1
-            examples:
-              season1:
-                value: 1
-                summary: Season 1
-              season3:
-                value: 3
-                summary: Season 3
-        - name: episode
-          in: query
-          required: true
-          description: Episode number (starting from 1)
-          schema:
-            type: integer
-            minimum: 1
-            examples:
-              episode1:
-                value: 1
-                summary: Episode 1
-              episode10:
-                value: 10
-                summary: Episode 10
+      - name: imdb_id
+        in: query
+        required: true
+        description: IMDb ID (e.g., tt0944947 for Game of Thrones)
+        schema:
+          type: string
+          pattern: "^tt[0-9]{7,8}"
+          examples:
+            got:
+              value: tt0944947
+              summary: Game of Thrones
+            breakingBad:
+              value: tt0903747
+              summary: Breaking Bad
+      - name: season
+        in: query
+        required: true
+        description: Season number (starting from 1)
+        schema:
+          type: integer
+          minimum: 1
+          examples:
+            season1:
+              value: 1
+              summary: Season 1
+            season3:
+              value: 3
+              summary: Season 3
+      - name: episode
+        in: query
+        required: true
+        description: Episode number (starting from 1)
+        schema:
+          type: integer
+          minimum: 1
+          examples:
+            episode1:
+              value: 1
+              summary: Episode 1
+            episode10:
+              value: 10
+              summary: Episode 10
       responses:
-        "200":
+        '200':
           description: Successfully retrieved intro timestamps
           content:
             application/json:
@@ -104,13 +109,13 @@ paths:
                     type: integer
                     description: Number of submissions that contributed to this aggregate
                 required:
-                  - imdb_id
-                  - season
-                  - episode
-                  - start_ms
-                  - end_ms
-                  - confidence
-                  - submission_count
+                - imdb_id
+                - season
+                - episode
+                - start_ms
+                - end_ms
+                - confidence
+                - submission_count
                 examples:
                   gotS1E1:
                     summary: Game of Thrones S1E1
@@ -122,7 +127,7 @@ paths:
                       end_ms: 2025000
                       confidence: 0.95
                       submission_count: 12
-        "400":
+        '400':
           description: Invalid request parameters
           content:
             application/json:
@@ -132,7 +137,7 @@ paths:
                   error:
                     type: string
                     example: Invalid IMDb ID format
-        "404":
+        '404':
           description: Intro not found for this episode
           content:
             application/json:
@@ -142,17 +147,236 @@ paths:
                   error:
                     type: string
                     example: Intro not found
-  /submit:
+  "/segments":
+    get:
+      tags:
+      - segments
+      summary: Get intro/recap/outro/post-credits segments for an episode or movie
+      description: Returns aggregated segment timestamps for a specific TV episode,
+        or for a movie when is_movie=true. Missing segments are returned as null.
+      operationId: getSegments
+      parameters:
+      - name: imdb_id
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: "^tt[0-9]{7,8}"
+      - name: season
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+        description: Season number (TV only)
+      - name: episode
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+        description: Episode number (TV only)
+      - name: is_movie
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: Set to true to fetch movie segments (ignores season/episode)
+      responses:
+        '200':
+          description: Successfully retrieved segments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imdb_id:
+                    type: string
+                  media_type:
+                    type: string
+                    enum:
+                    - tv
+                    - movie
+                  is_movie:
+                    type: boolean
+                  season:
+                    type: integer
+                  episode:
+                    type: integer
+                  intro:
+                    oneOf:
+                    - type: 'null'
+                    - type: object
+                      properties:
+                        start_ms:
+                          type: integer
+                        end_ms:
+                          type: integer
+                        start_sec:
+                          type: number
+                        end_sec:
+                          type: number
+                        confidence:
+                          type: number
+                        submission_count:
+                          type: integer
+                      required:
+                      - start_ms
+                      - end_ms
+                      - start_sec
+                      - end_sec
+                      - confidence
+                      - submission_count
+                  recap:
+                    oneOf:
+                    - type: 'null'
+                    - type: object
+                      properties:
+                        start_ms:
+                          type: integer
+                        end_ms:
+                          type: integer
+                        start_sec:
+                          type: number
+                        end_sec:
+                          type: number
+                        confidence:
+                          type: number
+                        submission_count:
+                          type: integer
+                      required:
+                      - start_ms
+                      - end_ms
+                      - start_sec
+                      - end_sec
+                      - confidence
+                      - submission_count
+                  outro:
+                    oneOf:
+                    - type: 'null'
+                    - type: object
+                      properties:
+                        start_ms:
+                          type: integer
+                        end_ms:
+                          type: integer
+                        start_sec:
+                          type: number
+                        end_sec:
+                          type: number
+                        confidence:
+                          type: number
+                        submission_count:
+                          type: integer
+                      required:
+                      - start_ms
+                      - end_ms
+                      - start_sec
+                      - end_sec
+                      - confidence
+                      - submission_count
+                  post_credits:
+                    oneOf:
+                    - type: 'null'
+                    - type: object
+                      properties:
+                        start_ms:
+                          type: integer
+                        end_ms:
+                          type: integer
+                        start_sec:
+                          type: number
+                        end_sec:
+                          type: number
+                        confidence:
+                          type: number
+                        submission_count:
+                          type: integer
+                      required:
+                      - start_ms
+                      - end_ms
+                      - start_sec
+                      - end_sec
+                      - confidence
+                      - submission_count
+                required:
+                - imdb_id
+                - season
+                - episode
+                - intro
+                - recap
+                - outro
+        '400':
+          description: Invalid request parameters
+        '404':
+          description: No segments found for this episode
+  "/outro":
+    get:
+      tags:
+      - segments
+      summary: Get the end-credits (outro) segment for a movie
+      description: Convenience endpoint that returns the aggregated end-credits timestamps
+        for a movie.
+      operationId: getMovieOutro
+      parameters:
+      - name: imdb_id
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: "^tt[0-9]{7,8}"
+      responses:
+        '200':
+          description: Successfully retrieved the movie outro
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imdb_id:
+                    type: string
+                  media_type:
+                    type: string
+                    enum:
+                    - movie
+                  segment_type:
+                    type: string
+                    enum:
+                    - outro
+                  start_sec:
+                    type: number
+                  end_sec:
+                    type: number
+                  start_ms:
+                    type: integer
+                  end_ms:
+                    type: integer
+                  confidence:
+                    type: number
+                  submission_count:
+                    type: integer
+                  updated_at:
+                    type: string
+                required:
+                - imdb_id
+                - start_ms
+                - end_ms
+                - confidence
+                - submission_count
+        '400':
+          description: Invalid request parameters
+        '404':
+          description: No movie outro found
+  "/submit":
     post:
       tags:
-        - submissions
-      summary: Submit intro timestamps (API key required)
-      description: Submit intro timestamps for a TV show episode using your API key.
-        Submissions appear in your account and contribute to crowdsourced data
-        after verification.
-      operationId: submitIntro
+      - submissions
+      summary: Submit segment timestamps (API key required)
+      description: Submit intro/recap/outro/post-credits timestamps for a TV episode
+        or a movie (is_movie=true) using your API key.
+      operationId: submitSegment
       security:
-        - ApiKeyAuth: []
+      - ApiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -160,17 +384,30 @@ paths:
             schema:
               type: object
               required:
-                - imdb_id
-                - season
-                - episode
-                - start_sec
-                - end_sec
+              - segment_type
+              - imdb_id
+              - start_sec
+              - end_sec
               properties:
+                segment_type:
+                  type: string
+                  enum:
+                  - intro
+                  - recap
+                  - outro
+                  - post-credits
+                  description: Segment type (outro/post-credits are the movie segment
+                    types)
                 imdb_id:
                   type: string
-                  pattern: ^tt[0-9]{7,8}
+                  pattern: "^tt[0-9]{7,8}"
                   description: IMDb ID
                   example: tt0903747
+                is_movie:
+                  type: boolean
+                  description: Set true when submitting movie timestamps; season/episode
+                    are then omitted
+                  default: false
                 season:
                   type: integer
                   minimum: 1
@@ -184,12 +421,12 @@ paths:
                 start_sec:
                   type: number
                   minimum: 0
-                  description: Intro start time in seconds
+                  description: Segment start time in seconds
                   example: 2.5
                 end_sec:
                   type: number
                   minimum: 0
-                  description: Intro end time in seconds
+                  description: Segment end time in seconds
                   example: 58
                 tvdb_id:
                   type: integer
@@ -201,8 +438,9 @@ paths:
                   example: 1396
             examples:
               breakingBad:
-                summary: Breaking Bad S1E1
+                summary: Breaking Bad intro
                 value:
+                  segment_type: intro
                   imdb_id: tt0903747
                   season: 1
                   episode: 1
@@ -210,8 +448,17 @@ paths:
                   end_sec: 58
                   tvdb_id: 81189
                   tmdb_id: 1396
+              fightClub:
+                summary: Fight Club post-credits (movie)
+                value:
+                  segment_type: post-credits
+                  imdb_id: tt0137523
+                  is_movie: true
+                  start_sec: 7650
+                  end_sec: 7800
+                  tmdb_id: 550
       responses:
-        "200":
+        '200':
           description: Submission created successfully
           content:
             application/json:
@@ -244,15 +491,16 @@ paths:
                       status:
                         type: string
                         enum:
-                          - pending
-                          - accepted
-                          - rejected
+                        - pending
+                        - accepted
+                        - rejected
                         description: Submission status
                       weight:
                         type: integer
                         description: Submission weight
-        "400":
-          description: Invalid request (bad format, invalid episode, duration out of range)
+        '400':
+          description: Invalid request (bad format, invalid episode, duration out
+            of range)
           content:
             application/json:
               schema:
@@ -261,10 +509,10 @@ paths:
                   error:
                     type: string
                     examples:
-                      - Invalid payload.
-                      - Episode does not exist for this show.
-                      - Intro duration must be between 5s and 180s.
-        "401":
+                    - Invalid payload.
+                    - Episode does not exist for this show.
+                    - recap duration must be between 5s and 480s.
+        '401':
           description: Invalid or missing API key
           content:
             application/json:
@@ -274,8 +522,8 @@ paths:
                   error:
                     type: string
                     example: Invalid API key
-        "429":
-          description: Rate limited (1 submission per episode per 10 minutes)
+        '429':
+          description: Rate limited (1 submission per segment and episode per 5 minutes)
           content:
             application/json:
               schema:
@@ -283,4 +531,4 @@ paths:
                 properties:
                   error:
                     type: string
-                    example: Rate limited for this episode.
+                    example: Rate limited for this segment and episode.

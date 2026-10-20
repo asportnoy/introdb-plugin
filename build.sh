@@ -30,9 +30,33 @@ clean_build() {
     mkdir -p "$BUILD_DIR"
 }
 
-# Check if .NET 9 SDK is available
-check_net9_available() {
-    dotnet --list-sdks 2>/dev/null | grep -q "^9\."
+# Plugin version, overridable via VERSION env var (e.g. VERSION=1.2.0.0 ./build.sh)
+VERSION="${VERSION:-1.0.0.0}"
+
+# Check if a given .NET SDK major version is available
+check_sdk_available() {
+    dotnet --list-sdks 2>/dev/null | grep -q "^$1\."
+}
+
+# Required .NET SDK major version for a Jellyfin version
+required_sdk() {
+    case "$1" in
+        10.10) echo 8 ;;
+        10.11) echo 9 ;;
+        12.2) echo 10 ;;
+    esac
+}
+
+# Zip a build output directory and write its md5 checksum
+package_output() {
+    local output_dir=$1
+    local name=$2
+    local zip_file="$BUILD_DIR/introdb_${VERSION}_${name}.zip"
+
+    (cd "$output_dir" && zip -q -r "$zip_file" .)
+    (cd "$BUILD_DIR" && md5sum "$(basename "$zip_file")" 2>/dev/null || md5 -r "$(basename "$zip_file")") \
+        | awk '{print $1 "  " $2}' > "${zip_file%.zip}.md5"
+    print_status "Packaged $zip_file"
 }
 
 # Build Jellyfin version
@@ -40,13 +64,12 @@ build_jellyfin() {
     local version=$1
     local output_dir="$BUILD_DIR/jellyfin-$version"
 
-    # Jellyfin 10.11+ requires .NET 9
-    if [ "$version" = "10.11" ]; then
-        if ! check_net9_available; then
-            print_warning "Jellyfin 10.11 requires .NET 9 SDK which is not installed."
-            print_warning "Skipping Jellyfin 10.11 build. Install .NET 9 SDK to build this version."
-            return 0
-        fi
+    local sdk
+    sdk=$(required_sdk "$version")
+    if ! check_sdk_available "$sdk"; then
+        print_warning "Jellyfin $version requires .NET $sdk SDK which is not installed."
+        print_warning "Skipping Jellyfin $version build. Install .NET $sdk SDK to build this version."
+        return 0
     fi
 
     print_status "Building for Jellyfin $version..."
@@ -54,6 +77,7 @@ build_jellyfin() {
     dotnet build "$SRC_DIR/IntroDbPlugin.csproj" \
         -c Release \
         -p:JellyfinVersion="$version" \
+        -p:Version="$VERSION" \
         -o "$output_dir" \
         --nologo
 
@@ -61,10 +85,13 @@ build_jellyfin() {
     rm -f "$output_dir"/*.deps.json
     rm -f "$output_dir"/*.pdb
 
-    # Copy meta.json and update targetAbi for this version
-    cp "$SRC_DIR/meta.json" "$output_dir/"
-    sed -i "s/\"targetAbi\": \"10.10.0.0\"/\"targetAbi\": \"$version.0.0\"/" "$output_dir/meta.json"
+    # Write meta.json with the targetAbi and version for this build
+    sed -E \
+        -e "s/\"targetAbi\": \"[^\"]*\"/\"targetAbi\": \"$version.0.0\"/" \
+        -e "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" \
+        "$SRC_DIR/meta.json" > "$output_dir/meta.json"
 
+    package_output "$output_dir" "jellyfin-$version"
     print_status "Jellyfin $version build complete: $output_dir"
 }
 
@@ -76,6 +103,7 @@ build_emby() {
 
     dotnet build "$SRC_DIR/IntroDbPlugin.Emby.csproj" \
         -c Release \
+        -p:Version="$VERSION" \
         -o "$output_dir" \
         --nologo
 
@@ -83,6 +111,7 @@ build_emby() {
     rm -f "$output_dir"/*.deps.json
     rm -f "$output_dir"/*.pdb
 
+    package_output "$output_dir" "emby"
     print_status "Emby build complete: $output_dir"
 }
 
@@ -94,13 +123,15 @@ usage() {
     echo "  --all           Build all versions (default)"
     echo "  --jellyfin-10.10  Build for Jellyfin 10.10 only"
     echo "  --jellyfin-10.11  Build for Jellyfin 10.11 only"
+    echo "  --jellyfin-12.2   Build for Jellyfin 12.2 only"
     echo "  --emby          Build for Emby only"
     echo "  --clean         Clean build directory only"
     echo "  --help          Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0              # Build all versions"
-    echo "  $0 --jellyfin-10.11  # Build only Jellyfin 10.11"
+    echo "  $0 --jellyfin-12.2  # Build only Jellyfin 12.2"
+    echo "  VERSION=1.2.0.0 $0  # Build all versions stamped as 1.2.0.0"
     echo "  $0 --emby       # Build only Emby"
 }
 
@@ -108,6 +139,7 @@ usage() {
 main() {
     local build_jellyfin_10_10=false
     local build_jellyfin_10_11=false
+    local build_jellyfin_12_2=false
     local build_emby_flag=false
     local clean_only=false
 
@@ -115,6 +147,7 @@ main() {
     if [ $# -eq 0 ]; then
         build_jellyfin_10_10=true
         build_jellyfin_10_11=true
+        build_jellyfin_12_2=true
         build_emby_flag=true
     else
         while [ $# -gt 0 ]; do
@@ -122,6 +155,7 @@ main() {
                 --all)
                     build_jellyfin_10_10=true
                     build_jellyfin_10_11=true
+                    build_jellyfin_12_2=true
                     build_emby_flag=true
                     ;;
                 --jellyfin-10.10)
@@ -129,6 +163,9 @@ main() {
                     ;;
                 --jellyfin-10.11)
                     build_jellyfin_10_11=true
+                    ;;
+                --jellyfin-12.2)
+                    build_jellyfin_12_2=true
                     ;;
                 --emby)
                     build_emby_flag=true
@@ -165,6 +202,10 @@ main() {
 
     if [ "$build_jellyfin_10_11" = true ]; then
         build_jellyfin "10.11"
+    fi
+
+    if [ "$build_jellyfin_12_2" = true ]; then
+        build_jellyfin "12.2"
     fi
 
     if [ "$build_emby_flag" = true ]; then

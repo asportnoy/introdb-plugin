@@ -1,0 +1,11 @@
+[
+  {
+    "guid": "b04f5f3e-3d3a-4a3c-9cd9-9f4f9a0c8a61",
+    "name": "IntroDB",
+    "description": "Fetches intro timestamps from IntroDB for automatic skip intro functionality.",
+    "overview": "Automatically retrieves intro start/end times from the IntroDB database for TV episodes.",
+    "owner": "IntroDB",
+    "category": "Metadata",
+    "versions": []
+  }
+]
