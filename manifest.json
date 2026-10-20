@@ -6,6 +6,15 @@
     "overview": "Automatically retrieves intro start/end times from the IntroDB database for TV episodes.",
     "owner": "IntroDB",
     "category": "Metadata",
-    "versions": []
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "## What's new\n- Jellyfin 12.2 support (also builds for Jellyfin 10.10, 10.11 and Emby 4.9)\n- Uses IntroDB's `/segments` API: **intros, recaps and end credits** for TV episodes **and movies**\n- End credits stop where a post-credits scene starts, so skipping credits never skips the scene\n- Settings page: segment toggles, library/show scope, skip items with existing segments, on-demand fetch (new items and playback), not-found cache, and removal of IntroDB's own segments\n- Automatic rate-limit handling (Retry-After / reset_at, backoff and retries); existing segments are kept when a lookup fails\n- Emby: intro and end-credits markers, movies\n\n## Install\nAdd `https://raw.githubusercontent.com/asportnoy/introdb-plugin/main/manifest.json` under **Dashboard → Plugins → Repositories** (Jellyfin 12.2), or download the zip for your server below.",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/asportnoy/introdb-plugin/releases/download/v1.0.0.0/introdb_1.0.0.0_jellyfin-12.2.zip",
+        "checksum": "c087718354918026002522aa0dae8586",
+        "timestamp": "2026-10-20T03:18:42Z"
+      }
+    ]
   }
 ]
