@@ -79,3 +79,7 @@ dotnet test introdb-plugin/IntroDbPlugin.Tests -p:JellyfinVersion=12.2
 ## Releasing
 
 Publishing a GitHub release tagged `vX.Y.Z.W` runs `.github/workflows/publish.yaml`, which builds every target, attaches the zips and checksums to the release, and adds the Jellyfin 12.2 build to `manifest.json` on `main`.
+
+## License
+
+GPL-3.0-only. See [LICENSE](LICENSE).
